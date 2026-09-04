@@ -3,7 +3,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Client } from "pg";
-import "dotenv/config";
+import { config } from "dotenv";
+
+// Next.js reads .env.local; make the Node-side tooling read the same file.
+config({ path: [".env.local", ".env"] });
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;

@@ -141,13 +141,25 @@ cd assign1
 npm install
 ```
 
-Then set up Neon:
+Then set up Neon. Either through the Console:
 
 1. Create a project in the [Neon Console](https://console.neon.tech).
 2. In the project's **Auth** tab, enable **Managed Better Auth** and the email/password provider. Copy the Auth URL.
 3. In the project's **Data API** tab, enable the Data API. Copy the Data API URL.
-4. From **Connection Details**, copy the pooled connection string.
+4. From **Dashboard → Connect**, copy the pooled connection string for role `neondb_owner`.
 5. Add `http://localhost:3000` to Neon Auth's trusted origins.
+
+…or entirely from the CLI, which is how this project was configured:
+
+```bash
+npx neon@latest auth                                    # browser OAuth login
+npx neon@latest neon-auth enable --project-id <id>      # Managed Better Auth
+npx neon@latest data-api create --project-id <id>       # Data API
+npx neon@latest neon-auth domain allow-localhost enable --project-id <id>
+npx neon@latest neon-auth status --project-id <id>      # prints the Auth URL
+npx neon@latest data-api get --project-id <id>          # prints the Data API URL
+npx neon@latest connection-string --project-id <id> --role-name neondb_owner --pooled
+```
 
 Create `.env.local` from the template and fill in those three values:
 
@@ -263,15 +275,44 @@ Because RLS is enabled and the grants are limited to the `authenticated` role, a
 npm test
 ```
 
-Runs [`tests/contacts-validation.test.ts`](tests/contacts-validation.test.ts) with Vitest. The test connects directly to Postgres with `DATABASE_URL` and asserts that the **database itself** — not the form, not the client — rejects invalid data:
+Nine tests across two files. Both run against the real Neon project — no mocks — so they verify the actual constraints and policies, not a local imitation of them.
 
-1. Inserting a contact whose name is only whitespace fails with a `contacts_name_not_blank` violation.
-2. Inserting a contact with `priority = 'urgent'` fails with a `contacts_priority_valid` violation.
-3. Inserting a valid contact succeeds.
+### 1. Database validation — [`tests/contacts-validation.test.ts`](tests/contacts-validation.test.ts)
 
-Each case runs inside a transaction that is rolled back, so the test leaves no data behind. It connects as the table owner, which means it exercises the `CHECK` constraints specifically; ownership isolation is verified separately by the two-account test below.
+Connects directly to Postgres with `DATABASE_URL` and asserts that the **database itself** — not the form, not the client — rejects invalid data:
 
-_TODO: paste passing `npm test` output here._
+| Case | Expected |
+| --- | --- |
+| Name is only whitespace | Rejected by `contacts_name_not_blank` |
+| `priority = 'urgent'` | Rejected by `contacts_priority_valid` |
+| Valid contact | Accepted |
+
+Each case runs inside a transaction that is rolled back, so the test leaves no data behind. It connects as the table owner, so it exercises the `CHECK` constraints specifically.
+
+### 2. RLS ownership — [`tests/rls-ownership.test.ts`](tests/rls-ownership.test.ts)
+
+This is the automated version of the two-account privacy test. It creates two throwaway users per run through the real Managed Better Auth service, gets real JWTs, and then drives the Data API over HTTPS exactly as the browser would — so it exercises genuine JWT validation and the real RLS policies:
+
+| Case | Expected |
+| --- | --- |
+| Each user lists contacts | A sees 1 row, B sees 0 |
+| B `SELECT`s A's row by its exact id | `[]` — the row is invisible |
+| B `PATCH`es A's row | 0 rows changed; A's data intact |
+| B `DELETE`s A's row | 0 rows deleted; A's row still there |
+| A reassigns its own row's `user_id` to B | `403`, Postgres error `42501` — RLS violation |
+| Unauthenticated request to the Data API | Rejected |
+
+It also asserts that the `user_id` on a newly created contact equals the creator's JWT `sub`, proving the server — not the client — decides ownership.
+
+### Output
+
+```
+ RUN  v4.1.11
+
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+   Duration  2.63s
+```
 
 ---
 
@@ -294,36 +335,61 @@ _TODO: paste passing `npm test` output here._
 
 ### Verification checklist
 
+Verified locally against the live Neon project:
+
+- [x] A user can sign up, sign in, and sign out
+- [x] A user can add, view, edit, delete, sort, and filter contacts
+- [x] Contacts survive a browser refresh (reloaded from Neon Postgres)
+- [x] Sorting by priority is semantic (high → medium → low), not alphabetical
+- [x] Search and priority filter compose correctly
+- [x] User A cannot see or change User B's contacts
+- [x] Invalid data fails safely with a clear message
+- [x] `user_id` is set by the database, never sent by the client
+- [x] Layout works at mobile width (table collapses to stacked cards)
+- [x] `npm test` passes (9/9)
+- [x] No secrets in frontend code or Git history
+
+Pending deployment:
+
 - [ ] App is live at a public URL
-- [ ] A user can sign up, sign in, and sign out
-- [ ] A user can add, view, edit, delete, sort, and filter contacts
-- [ ] Contacts survive a browser refresh
-- [ ] User A cannot see or change User B's contacts
-- [ ] Invalid data fails safely with a clear message
-- [ ] `npm test` passes
-- [ ] No secrets in frontend code or Git history
+- [ ] Vercel domain added to Neon Auth trusted origins
+- [ ] Full checklist re-run against the live URL
 
 ### Two-account privacy test
 
-Run against the live deployment in two separate private browser windows:
+This is automated in `tests/rls-ownership.test.ts` (run `npm test`), and was also confirmed by hand. Running the attack directly against the Data API with two real user JWTs produced:
 
-1. Sign up as User A. Add a contact, e.g. "Grace Hopper".
-2. In a second private window, sign up as User B. The dashboard shows the empty state — User A's contact is not visible.
-3. As User B, add a different contact. User A's list, after a refresh, still shows only their own.
-4. Copy User A's contact `id` from the network tab. As User B, attempt a direct Data API call against that row:
+```
+A sub: 9d9012d6-f602-4504-8d99-761ccc871e55
+B sub: 5a7ca3ec-d189-4460-ab27-7c984e082051
 
-   ```js
-   // In User B's browser console
-   await neon.from('contacts').select('*').eq('id', '<User A contact id>')
-   // → returns [] : the row is invisible to User B under contacts_select
+A sees 1 row(s): [ 'Grace Hopper' ]
+B sees 0 row(s): []
 
-   await neon.from('contacts').update({ name: 'hacked' }).eq('id', '<User A contact id>')
-   // → affects 0 rows : contacts_update's USING clause never matches
-   ```
+--- B attacks A's row 60e6f9c2-6d19-4a4b-8d99-865fc558b114 ---
+B direct SELECT by id -> []
+B PATCH  -> 200 []          (0 rows changed)
+B DELETE -> 200 []          (0 rows deleted)
 
-5. Sign back in as User A and confirm the contact is untouched.
+--- A tries to hand its row to B (ownership transfer) ---
+A PATCH user_id -> 403 {"code":"42501",
+  "message":"new row violates row-level security policy for table \"contacts\""}
 
-_TODO: attach screenshots of steps 2 and 4._
+A's row after all attacks: [{"name":"Grace Hopper"}]
+```
+
+Two things worth calling out:
+
+- **B's writes return `200` with an empty array, not an error.** That is RLS working as designed: the `USING` clause simply matches no rows, so the statement legally affects nothing. The row is not merely hidden from the UI — it is unreachable.
+- **A cannot give its own row away.** The `403 / 42501` is the `contacts_update` policy's `WITH CHECK` clause rejecting the row *after* the write, because the new `user_id` would no longer equal `auth.user_id()`.
+
+To reproduce by hand in the browser, sign up as two users in separate private windows and confirm each dashboard only ever shows its own contacts.
+
+### A note on trusted origins
+
+Neon Auth rejects any authentication request that arrives without an `Origin` header it recognises (`MISSING_OR_NULL_ORIGIN`, HTTP 403). This is why `http://localhost:3000` must be allowed for local development and why the Vercel domain has to be added before sign-in works in production.
+
+_TODO: attach UI screenshots from the live deployment._
 
 ---
 
@@ -332,5 +398,6 @@ _TODO: attach screenshots of steps 2 and 4._
 - **Route protection is client-side.** `components/require-auth.tsx` redirects unauthenticated visitors after the session resolves, which means the dashboard shell can flash briefly before redirecting. The data itself is never exposed — RLS blocks it regardless — but adding Next.js middleware backed by Better Auth's server integration would make the redirect happen before the page renders.
 - **No pagination.** The dashboard loads all of a user's contacts at once and sorts/filters in memory. That is fine for a personal networking list; past a few thousand rows it would need server-side pagination and ordering through the Data API.
 - **No email verification or password reset.** Managed Better Auth supports both; they are not wired into the UI.
-- **The automated test covers validation, not RLS.** It connects as the table owner to test `CHECK` constraints. Testing RLS automatically would require minting two real user JWTs in the test, which is worth doing next — it would turn the manual two-account check into a regression test.
 - **No optimistic updates.** Every mutation re-fetches the full list. Simple and always correct, but a larger list would feel snappier with optimistic UI.
+- **Tests create users they don't delete.** `tests/rls-ownership.test.ts` cleans up the contacts it creates but leaves its two throwaway auth users behind, so `neon_auth.user` accumulates a couple of rows per run. Cleaning those up needs the Better Auth admin API.
+- **Tests depend on a live Neon project.** They are integration tests by design — that is what makes them meaningful evidence — but it also means they need network access and real credentials, so they cannot run in a CI job that has neither.

@@ -55,6 +55,17 @@ export function ContactForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  /** Updates one field and clears its error, so a fixed field stops showing red as you type. */
+  function updateField(key: keyof typeof emptyForm, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   useEffect(() => {
     if (!open) return;
     // Reset the form to the contact being edited (or blank) whenever the
@@ -149,7 +160,7 @@ export function ContactForm({
               <Input
                 id="contact-name"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) => updateField("name", e.target.value)}
                 aria-invalid={!!fieldErrors.name}
               />
               {fieldErrors.name && (
@@ -166,7 +177,7 @@ export function ContactForm({
                   id="contact-company"
                   value={form.company}
                   onChange={(e) =>
-                    setForm({ ...form, company: e.target.value })
+                    updateField("company", e.target.value)
                   }
                 />
               </div>
@@ -175,7 +186,7 @@ export function ContactForm({
                 <Input
                   id="contact-role"
                   value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  onChange={(e) => updateField("role", e.target.value)}
                 />
               </div>
             </div>
@@ -186,7 +197,7 @@ export function ContactForm({
                 id="contact-met"
                 value={form.met_where}
                 onChange={(e) =>
-                  setForm({ ...form, met_where: e.target.value })
+                  updateField("met_where", e.target.value)
                 }
                 placeholder="e.g. CS 186 study group, career fair"
               />
@@ -197,7 +208,7 @@ export function ContactForm({
               <Select
                 value={form.priority}
                 onValueChange={(value) =>
-                  setForm({ ...form, priority: value as Priority })
+                  updateField("priority", value)
                 }
               >
                 <SelectTrigger id="contact-priority">
@@ -223,7 +234,7 @@ export function ContactForm({
               <Textarea
                 id="contact-notes"
                 value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                onChange={(e) => updateField("notes", e.target.value)}
                 rows={3}
               />
             </div>

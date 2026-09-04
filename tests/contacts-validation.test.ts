@@ -4,7 +4,10 @@
 // not RLS. Each case runs inside a transaction that's always rolled back.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
-import "dotenv/config";
+import { config } from "dotenv";
+
+// Next.js reads .env.local; make the Node-side tooling read the same file.
+config({ path: [".env.local", ".env"] });
 
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -17,6 +17,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -30,11 +37,25 @@ import {
 export type SortKey = "name" | "company" | "priority" | "met_where";
 export type SortDirection = "asc" | "desc";
 
+/**
+ * "set" picks a column without touching direction, "toggle" flips direction.
+ * Omitting the mode is the table-header behaviour: same column flips, new column
+ * starts ascending.
+ */
+export type SortChangeMode = "set" | "toggle";
+
+const MOBILE_SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "name", label: "name" },
+  { value: "company", label: "company" },
+  { value: "met_where", label: "where you met" },
+  { value: "priority", label: "priority" },
+];
+
 interface ContactTableProps {
   contacts: Contact[];
   sortKey: SortKey;
   sortDirection: SortDirection;
-  onSortChange: (key: SortKey) => void;
+  onSortChange: (key: SortKey, mode?: SortChangeMode) => void;
   onEdit: (contact: Contact) => void;
   onDeleted: () => void;
 }
@@ -153,6 +174,7 @@ export function ContactTable({
                   onClick={() => onSortChange("priority")}
                 />
               </TableHead>
+              <TableHead>Notes</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -167,6 +189,12 @@ export function ContactTable({
                   <Badge variant={priorityVariant[contact.priority]}>
                     {contact.priority}
                   </Badge>
+                </TableCell>
+                <TableCell
+                  className="max-w-[16rem] truncate text-muted-foreground"
+                  title={contact.notes ?? undefined}
+                >
+                  {contact.notes || "—"}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
@@ -194,17 +222,53 @@ export function ContactTable({
         </Table>
       </div>
 
-      {/* Mobile stacked cards */}
+      {/* Mobile stacked cards. The table header is gone at this width, so sorting
+          gets its own control rather than disappearing on small screens. */}
       <div className="flex flex-col gap-3 sm:hidden">
+        <div className="flex items-center gap-2">
+          <Select
+            value={sortKey}
+            onValueChange={(value) => onSortChange(value as SortKey, "set")}
+          >
+            <SelectTrigger className="flex-1" aria-label="Sort by">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MOBILE_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  Sort by {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label={
+              sortDirection === "asc"
+                ? "Sort descending"
+                : "Sort ascending"
+            }
+            onClick={() => onSortChange(sortKey, "toggle")}
+          >
+            {sortDirection === "asc" ? (
+              <ArrowUp className="size-4" />
+            ) : (
+              <ArrowDown className="size-4" />
+            )}
+          </Button>
+        </div>
+
         {contacts.map((contact) => (
           <div key={contact.id} className="rounded-md border p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="font-medium">{contact.name}</p>
-                {contact.company && (
+                {(contact.role || contact.company) && (
                   <p className="text-sm text-muted-foreground">
-                    {contact.role ? `${contact.role} · ` : ""}
-                    {contact.company}
+                    {[contact.role, contact.company]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 )}
               </div>
@@ -215,6 +279,11 @@ export function ContactTable({
             {contact.met_where && (
               <p className="mt-2 text-sm text-muted-foreground">
                 Met at: {contact.met_where}
+              </p>
+            )}
+            {contact.notes && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {contact.notes}
               </p>
             )}
             <div className="mt-3 flex gap-2">

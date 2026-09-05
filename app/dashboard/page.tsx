@@ -10,6 +10,7 @@ import { RequireAuth } from "@/components/require-auth";
 import { ContactFilters } from "@/components/contact-filters";
 import {
   ContactTable,
+  type SortChangeMode,
   type SortDirection,
   type SortKey,
 } from "@/components/contact-table";
@@ -66,7 +67,16 @@ function DashboardContent() {
     loadContacts();
   }, [loadContacts]);
 
-  function handleSortChange(key: SortKey) {
+  function handleSortChange(key: SortKey, mode?: SortChangeMode) {
+    if (mode === "toggle") {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+      return;
+    }
+    if (mode === "set") {
+      setSortKey(key);
+      return;
+    }
+    // Table-header click: flip direction on the active column, otherwise switch.
     if (key === sortKey) {
       setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
     } else {

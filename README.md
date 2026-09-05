@@ -32,25 +32,78 @@ A private networking tracker for the people you want to stay connected with at B
 - **Add a contact** with name, company, role, where you met, notes, and priority
 - **Priority** is restricted to `high`, `medium`, or `low` at the database level
 - **Edit and delete** your own contacts, with a confirmation step before deleting
-- **Sort** by name, company, where you met, or priority (click a column header to toggle direction)
+- **Sort** by name, company, where you met, or priority — column headers on desktop, a dedicated sort control on mobile
 - **Filter** by free-text search across name and company, and by priority
 - **Persistence** — contacts are stored in Neon Postgres and survive refreshes, new sessions, and new devices
 - **Clear states** — distinct loading, empty, success, and error states throughout
-- **Responsive** — a sortable table on desktop, stacked cards on mobile
+- **Responsive** — a sortable table on desktop, stacked cards on mobile, with sorting available in both
 
 ---
 
 ## Screenshots
 
-_TODO: add screenshots after the live deployment. Required shots:_
+Every screenshot below was captured from the **live deployment**, not a local dev server.
 
-| What | File |
+### Signing in and out
+
+A signed-out visitor lands on the public page and signs in with email and password. The dashboard header shows who is signed in and carries the **Sign out** button, which clears the session and returns to `/sign-in`.
+
+| Landing page (signed out) | Sign in |
 | --- | --- |
-| Sign-in and sign-out | `docs/screenshots/auth.png` |
-| Creating, editing, deleting, and refreshing a contact | `docs/screenshots/crud.png` |
-| Two-account privacy test | `docs/screenshots/privacy-test.png` |
-| Invalid input failing safely | `docs/screenshots/validation-error.png` |
-| Passing automated test output | `docs/screenshots/test-output.png` |
+| ![Landing page](docs/screenshots/01-landing.png) | ![Sign in form](docs/screenshots/02-sign-in.png) |
+
+### The contact list
+
+![Dashboard](docs/screenshots/03-dashboard.png)
+
+### Invalid input fails safely
+
+Submitting the form with an empty name is refused before any request is sent: the field is marked invalid and the reason is stated in plain language. The same rule is enforced independently by the database's `contacts_name_not_blank` constraint, so it holds even for a caller that skips the UI entirely.
+
+![Validation error](docs/screenshots/04-validation-error.png)
+
+### Creating a contact
+
+| Filling in the form | Saved, with confirmation |
+| --- | --- |
+| ![Add contact form](docs/screenshots/05-add-contact.png) | ![Contact added](docs/screenshots/06-contact-added.png) |
+
+### Surviving a refresh
+
+After a full page reload the contact is still there, re-fetched from Neon Postgres rather than held in browser state.
+
+![After refresh](docs/screenshots/07-after-refresh.png)
+
+### Editing and deleting
+
+| Edit, pre-populated | Delete, with confirmation |
+| --- | --- |
+| ![Edit contact](docs/screenshots/08-edit-contact.png) | ![Delete confirmation](docs/screenshots/09-delete-confirm.png) |
+
+### Sorting and filtering
+
+Priority sorts in its natural order — high, medium, low — rather than alphabetically. Search matches name and company, and composes with the priority filter.
+
+| Sorted by priority | Search |
+| --- | --- |
+| ![Sorted by priority](docs/screenshots/10-sorted-by-priority.png) | ![Search](docs/screenshots/11-search-filter.png) |
+
+### Two-account privacy test
+
+Both users are signed in to the same deployment and their contacts live in the same `contacts` table. User A has three contacts; User B sees none of them.
+
+| User A | User B |
+| --- | --- |
+| ![User A's contacts](docs/screenshots/12-user-a-contacts.png) | ![User B sees nothing](docs/screenshots/13-user-b-empty.png) |
+
+This is enforced by Postgres, not by the UI — see [the attack transcript below](#two-account-privacy-test-1) for what happens when User B skips the interface and calls the Data API directly.
+
+### Mobile
+
+Below the `sm` breakpoint the table becomes stacked cards and the controls go full-width. Because the column headers are gone at this width, sorting moves into its own control — a field picker plus a direction toggle — so the list stays sortable on a phone.
+
+<img src="docs/screenshots/14-mobile-dashboard.png" alt="Mobile dashboard" width="380">
+
 
 ---
 
@@ -138,8 +191,8 @@ The `zod` schema in `lib/contact-schema.ts` runs in the browser purely so the us
 **Prerequisites:** Node.js 20+ and a Neon account.
 
 ```bash
-git clone <this-repo-url>
-cd assign1
+git clone https://github.com/isabellavsqs/networking-tracker.git
+cd networking-tracker
 npm install
 ```
 
@@ -198,6 +251,12 @@ Copy `.env.example` to `.env.local`. `.env.local` is gitignored and must never b
 | `DATABASE_URL` | **No** | Direct Postgres connection string. Used only by `scripts/migrate.ts` and the Vitest test, both of which run locally on Node. The deployed app never reads it, and it is not set in Vercel. |
 
 The Postgres connection string never appears in frontend code, in the client bundle, or in Git history. Only variables prefixed with `NEXT_PUBLIC_` are inlined into the browser bundle by Next.js, and `DATABASE_URL` is deliberately not one of them.
+
+### Why there is no `NEON_AUTH_BASE_URL` or `NEON_AUTH_COOKIE_SECRET`
+
+Managed Better Auth can be used two ways. One is a server-side integration where your own Next.js server proxies `/api/auth/*` and signs its own session cookies — that setup needs `NEON_AUTH_BASE_URL` and a `NEON_AUTH_COOKIE_SECRET`. The other, used here, is the browser talking to the hosted auth service directly through `@neondatabase/neon-js`, with Neon issuing and validating the session itself.
+
+This app takes the second route, so it has no cookie secret to protect and no server-side auth code to run. That is also why Neon's trusted-origins list matters: it is what restricts which sites may call the auth endpoint, taking the place of a server-side origin check. If the project were later switched to the proxied setup, both of those variables would be server-only and would never carry the `NEXT_PUBLIC_` prefix.
 
 ---
 
@@ -308,12 +367,24 @@ It also asserts that the `user_id` on a newly created contact equals the creator
 
 ### Output
 
+`npx vitest run --reporter=verbose` against the live Neon project:
+
 ```
  RUN  v4.1.11
 
+ ✓ tests/contacts-validation.test.ts > contacts table validation > rejects a blank name 207ms
+ ✓ tests/contacts-validation.test.ts > contacts table validation > rejects an invalid priority 191ms
+ ✓ tests/contacts-validation.test.ts > contacts table validation > accepts a valid contact 188ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > gives each user a separate list 290ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > hides User A's row from User B even when B knows its exact id 70ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > blocks User B from updating User A's row 161ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > blocks User B from deleting User A's row 155ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > stops User A from reassigning their row to User B 66ms
+ ✓ tests/rls-ownership.test.ts > RLS contact ownership > rejects unauthenticated access outright 70ms
+
  Test Files  2 passed (2)
       Tests  9 passed (9)
-   Duration  2.63s
+   Duration  2.30s
 ```
 
 ---
@@ -406,13 +477,22 @@ Two things worth calling out:
 - **B's writes return `200` with an empty array, not an error.** That is RLS working as designed: the `USING` clause simply matches no rows, so the statement legally affects nothing. The row is not merely hidden from the UI — it is unreachable.
 - **A cannot give its own row away.** The `403 / 42501` is the `contacts_update` policy's `WITH CHECK` clause rejecting the row *after* the write, because the new `user_id` would no longer equal `auth.user_id()`.
 
-To reproduce by hand in the browser, sign up as two users in separate private windows and confirm each dashboard only ever shows its own contacts.
+### Reproducing it yourself
+
+The demo accounts' passwords are deliberately not published here — anyone reading a public repository could then sign in and edit the data these screenshots depend on. You do not need them: sign-up is open and email verification is off, so two fresh accounts take about a minute.
+
+1. Open the [live app](https://networking-tracker-rose.vercel.app) in a normal window and sign up as User A. Add a contact.
+2. Open a **private/incognito** window, sign up as User B. The dashboard shows the empty state — none of User A's contacts appear.
+3. Add a contact as User B, then refresh User A's window. Each list still contains only its owner's rows.
+4. For the stronger version, run `npm test` — `tests/rls-ownership.test.ts` performs the direct-API attacks above against the real database on every run.
+
+The [side-by-side screenshots](#two-account-privacy-test) show steps 1–2.
 
 ### A note on trusted origins
 
 Neon Auth rejects any authentication request that arrives without an `Origin` header it recognises (`MISSING_OR_NULL_ORIGIN`, HTTP 403). This is why `http://localhost:3000` must be allowed for local development and why the Vercel domain has to be added before sign-in works in production.
 
-_TODO: attach UI screenshots from the live deployment._
+Side-by-side screenshots of the same test in the UI are in [Two-account privacy test](#two-account-privacy-test) above.
 
 ---
 

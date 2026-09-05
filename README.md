@@ -2,7 +2,9 @@
 
 A private networking tracker for the people you want to stay connected with at Berkeley. Each user signs up with email and password, then keeps their own list of contacts — name, company, role, where they met, notes, and a priority of high, medium, or low. Contacts can be created, edited, deleted, sorted, and filtered, and they persist in Neon Postgres across refreshes and devices. Every contact row is owned by exactly one user and that ownership is enforced by Postgres Row Level Security, not by the frontend: even if someone hit the public Data API directly with their own token, the database would only ever return their own rows.
 
-**Live app:** _TODO: add Vercel URL after deployment_
+**Live app:** https://networking-tracker-rose.vercel.app
+
+**Repository:** https://github.com/isabellavsqs/networking-tracker
 
 ---
 
@@ -319,15 +321,34 @@ It also asserts that the `user_id` on a newly created contact equals the creator
 ## Deployment
 
 1. Push the repository to GitHub.
-2. Import it into Vercel (or run `vercel`). No build configuration is needed — Vercel detects Next.js.
-3. In Vercel's project settings, add the two public environment variables:
-   - `NEXT_PUBLIC_NEON_AUTH_URL`
-   - `NEXT_PUBLIC_NEON_DATA_API_URL`
+2. Import it into Vercel (or run `vercel link`). No build configuration is needed — Vercel detects Next.js.
+3. Add the two public environment variables. Vercel refuses a `NEXT_PUBLIC_` variable unless you state its exposure explicitly, and here public exposure is intended, so they are declared as `config`:
 
-   Do **not** add `DATABASE_URL` — the deployed app does not use it.
-4. Deploy, then copy the resulting `*.vercel.app` domain.
-5. Add that domain to Neon Auth's trusted origins so sign-in works in production.
+   ```bash
+   vercel env add NEXT_PUBLIC_NEON_AUTH_URL production --type config
+   vercel env add NEXT_PUBLIC_NEON_DATA_API_URL production --type config
+   ```
+
+   Do **not** add `DATABASE_URL` — the deployed app never reads it.
+4. Deploy: `vercel --prod`.
+5. Add the resulting domain to Neon Auth's trusted origins, or sign-in will fail with `MISSING_OR_NULL_ORIGIN`:
+
+   ```bash
+   npx neon@latest neon-auth domain add "https://<your-app>.vercel.app" --project-id <id>
+   ```
+
 6. Open the live URL in a private window and run the verification checklist below.
+
+### A note on the two Vercel URLs
+
+Vercel assigned this project two aliases, and they do **not** behave the same way:
+
+| URL | Behaviour |
+| --- | --- |
+| `networking-tracker-rose.vercel.app` | **Public** — this is the graded URL |
+| `networking-tracker-team-1-4658.vercel.app` | Redirects to Vercel SSO (team Deployment Protection) |
+
+The team-scoped alias sits behind Deployment Protection, so it returns a `302` to a Vercel login for anyone outside the team. Only the first URL is publicly reachable, and it is the one registered with Neon Auth.
 
 ---
 
@@ -349,11 +370,13 @@ Verified locally against the live Neon project:
 - [x] `npm test` passes (9/9)
 - [x] No secrets in frontend code or Git history
 
-Pending deployment:
+Verified against the live deployment:
 
-- [ ] App is live at a public URL
-- [ ] Vercel domain added to Neon Auth trusted origins
-- [ ] Full checklist re-run against the live URL
+- [x] App is live at a public URL (`200 OK` with no authentication)
+- [x] Vercel domain added to Neon Auth trusted origins
+- [x] Sign-in works in production; contacts load from Neon Postgres
+- [x] Landing page, sign-in, and dashboard all render on the live URL
+- [x] Visiting `/dashboard` while signed out redirects to `/sign-in`
 
 ### Two-account privacy test
 

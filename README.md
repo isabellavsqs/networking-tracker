@@ -238,6 +238,10 @@ npm run dev
 
 Open http://localhost:3000.
 
+> **`.env.local` is required before you build or run.** `lib/neon-client.ts` throws at import time if the two `NEXT_PUBLIC_` URLs are missing, so `npm run build` on a fresh clone fails with `Missing NEXT_PUBLIC_NEON_AUTH_URL or NEXT_PUBLIC_NEON_DATA_API_URL` until you create the file. That is deliberate — failing at build time with a named variable beats shipping a bundle that only breaks once a user tries to sign in. `npm test` is the same: it needs `DATABASE_URL`, and skips rather than fails if it is absent.
+
+Verified from a clean clone: `git clone` → `npm install` → create `.env.local` → `npm run build` succeeds.
+
 ---
 
 ## Environment variables
